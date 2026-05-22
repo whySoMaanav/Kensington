@@ -478,7 +478,7 @@ def kei_efficiency_bar(result):
     colors = [ACCENT if v >= 0.7 else AMBER if v >= 0.5 else DANGER
               for v in df_plot[eff_col]]
     fig = go.Figure(go.Bar(
-        x=df_plot["physician_id"], y=df_plot[eff_col],
+        x=df_plot["physician_id"].astype(str), y=df_plot[eff_col],
         marker_color=colors,
         text=[f"{v:.1%}" for v in df_plot[eff_col]],
         textposition="outside",
@@ -493,7 +493,7 @@ def kei_efficiency_bar(result):
         plot_bgcolor=LIGHT_MINT, paper_bgcolor="white",
         margin=dict(l=10, r=10, t=50, b=80),
         height=380, font=dict(family="Inter", color=DARK),
-        xaxis=dict(tickangle=-35),
+        xaxis=dict(tickangle=-35, type="category"),
     )
     fig.update_yaxes(gridcolor=TEAL_MIST)
     return fig
@@ -507,12 +507,13 @@ def kei_sub_breakdown(result):
     if not available:
         return None
     df_plot = result[["physician_id"] + available].copy()
+    df_plot["physician_id"] = df_plot["physician_id"].astype(str)
     fig = go.Figure()
     colors = [ACCENT, MID, DEEP_GREEN]
     for col, name, color in zip(available, display_names[:len(available)], colors):
         fig.add_trace(go.Bar(
             name=name,
-            x=df_plot["physician_id"],
+            x=df_plot["physician_id"].astype(str),
             y=df_plot[col],
             marker_color=color,
             hovertemplate=f"<b>%{{x}}</b><br>{name}: %{{y:.1%}}<extra></extra>",
@@ -525,39 +526,12 @@ def kei_sub_breakdown(result):
         plot_bgcolor=LIGHT_MINT, paper_bgcolor="white",
         margin=dict(l=10, r=10, t=50, b=80),
         height=380, font=dict(family="Inter", color=DARK),
-        xaxis=dict(tickangle=-35),
+        xaxis=dict(tickangle=-35, type="category"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
     fig.update_yaxes(gridcolor=TEAL_MIST)
     return fig
 
-
-def kei_criteria_heatmap(result):
-    """Heatmap of all criteria values across physicians."""
-    crit_cols = [c[1] for c in CRITERIA if c[1] in result.columns]
-    if not crit_cols:
-        return None
-    df_h = result.set_index("physician_id")[crit_cols].apply(pd.to_numeric, errors="coerce")
-    fig = go.Figure(go.Heatmap(
-        z=df_h.values,
-        x=crit_cols,
-        y=df_h.index.tolist(),
-        colorscale=KEN_COLORSCALE,
-        text=[[str(round(v, 2)) if not np.isnan(v) else "–" for v in row] for row in df_h.values],
-        texttemplate="%{text}",
-        hovertemplate="<b>%{y}</b> — %{x}<br>Value: %{z:.3f}<extra></extra>",
-        showscale=True,
-        colorbar=dict(title="Score"),
-    ))
-    fig.update_layout(
-        title="Physician Criteria Overview (Heatmap)",
-        plot_bgcolor=LIGHT_MINT, paper_bgcolor="white",
-        margin=dict(l=10, r=10, t=50, b=80),
-        height=max(300, 55 * len(df_h)),
-        font=dict(family="Inter", color=DARK),
-        xaxis=dict(tickangle=-35),
-    )
-    return fig
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1132,9 +1106,14 @@ if page == "📋 Criteria Extraction":
         today = date.today()
         quarter_month = ((today.month - 1) // 3) * 3 + 1
         default_start = date(today.year, quarter_month, 1) - timedelta(days=90)
-        run_date     = st.date_input("Quarter start date", value=default_start, label_visibility="collapsed")
-        window_start = run_date
-        window_end   = run_date + relativedelta(months=3) - timedelta(days=1)
+        col_start, col_end = st.columns(2)
+        with col_start:
+            window_start = st.date_input("Start Date", value=default_start)
+        with col_end:
+            window_end = st.date_input("End Date", value=default_start + relativedelta(months=3) - timedelta(days=1))
+    if window_end <= window_start:
+        st.error("End date must be after start date.")
+        st.stop()
         st.markdown(
             f'<div class="window-pill">📅 {window_start.strftime("%b %d, %Y")} → {window_end.strftime("%b %d, %Y")}</div>',
             unsafe_allow_html=True)
@@ -1207,7 +1186,7 @@ if page == "📋 Criteria Extraction":
         st.markdown("---")
         section("2. Visualizations")
 
-        tab_eff, tab_sub, tab_heat = st.tabs(["Efficiency Overview", "Sub-Metric Breakdown", "Criteria Heatmap"])
+        tab_eff, tab_sub = st.tabs(["Efficiency Overview", "Sub-Metric Breakdown"])
 
         with tab_eff:
             fig_eff = kei_efficiency_bar(result)
@@ -1219,15 +1198,22 @@ if page == "📋 Criteria Extraction":
             if fig_sub: st.plotly_chart(fig_sub, use_container_width=True)
             else: st.info("Sub-metric columns not available.")
 
-        with tab_heat:
-            fig_heat = kei_criteria_heatmap(result)
-            if fig_heat: st.plotly_chart(fig_heat, use_container_width=True)
-            else: st.info("Criteria columns not found.")
-
         st.markdown("---")
         section("3. Output Table")
 
         show_breakdown = st.checkbox("Show efficiency sub-metrics (Block Util., On-Time Start, Booking Adherence)")
+        with st.expander("ℹ How are these sub-metrics calculated?"):
+            st.markdown("""
+                **Block Utilization**
+                Hours used ÷ hours allocated per OR day (assumes 7.5-hour OR day). Higher is better.
+
+                **On-Time Start**
+                Percentage of first cases where Patient In Room Time is within 5 minutes of the scheduled start time. Benchmark: 85%. Higher is better.
+
+                **Booking Adherence**
+                Percentage of active OR days meeting the subspecialty-specific minimum booking threshold
+                (e.g. Cataract surgeons: 16 cases/day). Higher is better.
+                """)
 
         def style_efficiency(val):
             if pd.isna(val): return f"background-color:{PALE_TEAL}; color:{DANGER}"
@@ -1277,7 +1263,7 @@ if page == "📋 Criteria Extraction":
                         border:1px solid {TEAL_MIST}; font-size:0.88rem; color:{DARK};">
                 <strong>File:</strong> <code>{filename}</code><br>
                 <strong>Rows:</strong> {len(result)} physicians &nbsp;|&nbsp;
-                <strong>Columns:</strong> {len(result.columns)}
+                <strong>Columns:</strong> {len(export_df.columns)}
             </div>""", unsafe_allow_html=True)
 
 
