@@ -1110,7 +1110,7 @@ if page == "📋 Criteria Extraction":
         with col_start:
             window_start = st.date_input("Start Date", value=default_start)
         with col_end:
-            window_end = st.date_input("End Date", value=default_start + relativedelta(months=3) - timedelta(days=1))
+            window_end = window_start + relativedelta(months=3) - timedelta(days=1)
     if window_end <= window_start:
         st.error("End date must be after start date.")
         st.stop()
@@ -1238,7 +1238,7 @@ if page == "📋 Criteria Extraction":
             styled = export_df.style.applymap(style_efficiency, subset=[eff_col] if eff_col in export_df.columns else []).format(
                 {eff_col: lambda x: f"{x:.1%}" if not pd.isna(x) else "—"}, na_rep="—")
 
-        st.dataframe(styled, use_container_width=True, height=380)
+        st.dataframe(styled, use_container_width=True, height=380, hide_index=True)
 
         if "_efficiency_note" in result.columns:
             missing_rows = result[result["_efficiency_note"] != ""].copy()
@@ -1529,7 +1529,7 @@ elif page == "🏆 Physician Conflict Resolution":
                         st.dataframe(df_preview.style.highlight_null(color=PALE_TEAL))
                         df_processed = df_processed.fillna(0)
                     else:
-                        st.dataframe(df_preview)
+                        st.dataframe(df_preview, height=220)
 
                     # Weights
                     weights = {}
@@ -1569,9 +1569,16 @@ elif page == "🏆 Physician Conflict Resolution":
                         else:
                             results_pcr, contributions_pcr, explanations_pcr, df_norm_pcr = calculate_score(
                                 df_processed, "weighted_sum", weights, orientations)
+                            
+                            st.markdown("---")
+                            section("2. Export")
+                            csv_pcr = results_pcr.to_csv().encode("utf-8")
+                            st.download_button("⬇  Download Ranked Results as CSV",
+                                               data=csv_pcr, file_name="ranked_physicians.csv",
+                                               mime="text/csv")
 
                             st.markdown("---")
-                            section("2. Ranked Results")
+                            section("3. Ranked Results")
                             st.caption("Expand each row for the radar, weighted contributions, and full calculation formula.")
 
                             top_3 = results_pcr.sort_values("Rank", ascending=True).head(3)
@@ -1588,7 +1595,7 @@ elif page == "🏆 Physician Conflict Resolution":
                                                         df_norm_pcr, explanations_pcr, "weighted_sum")
 
                             st.markdown("---")
-                            section("3. Visual Insights")
+                            section("4. Visual Insights")
                             tab_p1, tab_p2, tab_p3, tab_p4 = st.tabs([
                                 "Score Comparison", "Criteria Heatmap",
                                 "Contribution Breakdown", "Conflict Insights"])
@@ -1613,7 +1620,7 @@ elif page == "🏆 Physician Conflict Resolution":
                                     plot_bgcolor=LIGHT_MINT, paper_bgcolor="white",
                                     margin=dict(l=10, r=10, t=50, b=80), height=400,
                                     font=dict(family="Inter", color=DARK),
-                                    xaxis=dict(tickangle=-35))
+                                    xaxis=dict(tickangle=-35, type="category"))
                                 fig_bar_.update_yaxes(gridcolor=TEAL_MIST)
                                 st.plotly_chart(fig_bar_, use_container_width=True)
 
@@ -1649,7 +1656,7 @@ elif page == "🏆 Physician Conflict Resolution":
                                     plot_bgcolor=LIGHT_MINT, paper_bgcolor="white",
                                     margin=dict(l=10, r=10, t=50, b=80), height=420,
                                     font=dict(family="Inter", color=DARK),
-                                    xaxis=dict(tickangle=-35),
+                                    xaxis=dict(tickangle=-35, type="category"),
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02))
                                 fig_stack_.update_yaxes(gridcolor=TEAL_MIST)
                                 st.plotly_chart(fig_stack_, use_container_width=True)
@@ -1667,7 +1674,7 @@ elif page == "🏆 Physician Conflict Resolution":
                                 gaps_df_ = pd.DataFrame(gaps_).sort_values("Score Gap")
 
                                 # Horizontal bar of gaps
-                                gap_labels_ = [f"{r['Higher Rank']} vs {r['Lower Rank']}"
+                                gap_labels_ = [f"{int(r['Higher Rank'])} vs {int(r['Lower Rank'])}"
                                                for _, r in gaps_df_.iterrows()]
                                 gap_vals_   = gaps_df_["Score Gap"].tolist()
                                 gap_colors_ = [DEEP_GREEN if v > 0.05 else AMBER if v > 0.01 else DANGER
@@ -1694,12 +1701,7 @@ elif page == "🏆 Physician Conflict Resolution":
                                     subset=["Score Gap"], cmap="RdYlGn", axis=0),
                                     use_container_width=True, hide_index=True)
 
-                            st.markdown("---")
-                            section("4. Export")
-                            csv_pcr = results_pcr.to_csv().encode("utf-8")
-                            st.download_button("⬇  Download Ranked Results as CSV",
-                                               data=csv_pcr, file_name="ranked_physicians.csv",
-                                               mime="text/csv")
+                            
         except Exception as e:
             st.error(f"Error reading file: {e}")
     else:
